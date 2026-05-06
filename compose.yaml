@@ -1,0 +1,62 @@
+services:
+    db:
+        image: postgis/postgis:15-3.3
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_RIGHTFUL_USER} -d ${POSTGRES_DB}"]
+            interval: 5s
+            timeout: 5s
+            retries: 5
+        container_name: postgisdb
+        restart: always
+        env_file:
+            - .env
+        environment:
+            - POSTGRES_USER=${POSTGRES_USER}
+            - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+            - POSTGRES_DB=${POSTGRES_DB}
+        ports:
+            - "5432:5432"
+        volumes:
+            - pgdata:/var/lib/postgresql/data
+            - ./scripts/init_db:docker-entrypoint-initdb.d
+            - ./backups:/backups
+            - ./log:/log
+
+
+    app:
+        build: .
+        container_name: djangoapp
+        restart: always
+        env_file:
+            - .env
+        environment:
+            - DATABASE_URL=postgresql://${POSTGRES_DJANGO_USER}:${POSTGRES_DJANGO_PASSWORD}@db:5432/${POSTGRES_DB}
+        ports:
+            - "8081:8081"
+        volumes:
+            - .:/app
+            - ./log:/log
+        depends_on:
+            db:
+                condition: service_healthy
+
+
+    bot:
+        build: .
+        container_name: tgbot
+        restart: always
+        env_file:
+            - .env
+        environment:
+            - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+            - DATABASE_URL=postgresql://${POSTGRES_BOT_USER}:${POSTGRES_BOT_PASSWORD}@db:5432/${POSTGRES_DB}
+        ports:
+            - "8443:8443"
+        volumes:
+            - ./log:/log
+        depends_on:
+            db:
+                condition: service_healthy
+
+volumes:
+    pgdata:

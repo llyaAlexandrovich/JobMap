@@ -1,0 +1,21 @@
+# Python cach
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Backups
+postgres_data/
+backups/
+
+# Env
+.env
+
+# Django
+db.sqlite3
+media/
+static/
+
+# Logs
+*.log
+log
+.DS_Store
