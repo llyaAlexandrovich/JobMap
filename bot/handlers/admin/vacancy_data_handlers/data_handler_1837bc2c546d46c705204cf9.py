@@ -119,12 +119,10 @@ async def get_vacancy_data_auto(message: Message, state: FSMContext):
 
     except Exception as e:
         logging.error(f"Vacancy data handler error in data_handler_1837bc2c546d46c705204cf9.get_vacancy_data_auto: {e}")
-        await state.clear()
-        await message.answer("Transaction status: Failed")
-        await state.set_state(VacancyData.auto_vacancy)
+        await state.set_state(VacancyData.manual_vacancy)
 
 
-# At this point we never really reach this code.
+
 @router.message(VacancyData.manual_vacancy, flags={"is_admin": True})
 async def get_vacancy_data_manual(message: Message, state: FSMContext):
     if not message.text:
