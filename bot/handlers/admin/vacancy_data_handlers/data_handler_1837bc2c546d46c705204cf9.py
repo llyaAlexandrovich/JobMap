@@ -11,6 +11,7 @@ from shapely.geometry import Point
 from loader import *
 from tables.transactions import create_new_vacancy_transaction
 from utils.controls.control_input import VacancyData
+from utils.miscellaneous.normalize_coords import normalize_coords
 
 
 router = Router()
@@ -23,6 +24,7 @@ async def get_vacancy_data_auto(message: Message, state: FSMContext):
     if not message.text:
         await state.clear()
         await message.answer("Send valid message")
+        logging.warning(f"Invalid message or no message at all: {message.message_id}")
         return
 
     try:
@@ -34,6 +36,7 @@ async def get_vacancy_data_auto(message: Message, state: FSMContext):
         if len(strings) < 3:
             await state.clear()
             await message.answer("Unsupported provider or message was corrupted")
+            logging.warning(f"Unsupported provider or message was corrupted: {message.message_id}")
             return
 
         # Safe way to get link to the vacancy.
@@ -55,7 +58,7 @@ async def get_vacancy_data_auto(message: Message, state: FSMContext):
         vacancy_name=strings[0][2:]
         vacancy_info=strings[1].split('·')
         vacancy_info[0] = vacancy_info[0][2:]
-        vacancy_info[1] = vacancy_info[1][2:]
+        vacancy_info[1] = vacancy_info[1]
         provider_link=os.environ.get("DATAPROVIDER_LINK_1837bc2c546d46c705204cf9")
         tags_array=[tag.strip() for tag in strings[2].replace('#', '').split(' ') if tag.strip()]
         hash=sha3_512(f"{message.text}{provider_name}".encode()).hexdigest()
@@ -78,8 +81,10 @@ async def get_vacancy_data_auto(message: Message, state: FSMContext):
                 hash=hash
             )
 
-            await message.answer("Error occurred while trying to get required location. Please enter coordinates manually")
-            await state.set_state(VacancyData.manual_vacancy)
+            #await message.answer("Error occurred while trying to get required location. Please enter coordinates manually")
+            #logging.warning("Error occurred while trying to get required location")
+            await state.clear()
+            await state.set_state(VacancyData.auto_vacancy)
             return
 
         location_name = location.address
@@ -94,10 +99,11 @@ async def get_vacancy_data_auto(message: Message, state: FSMContext):
             Coords: {coords[0]}x{coords[1]}
             Company: {vacancy_info[0]}
             Tags: {tags_array}
+            Hash: {hash[:8]}
         """
 
         await message.answer(log_text)
-        logging.info(log_text)
+        logging.info(log_text.rstrip())
 
         # Executing a DB transaction.
         transaction_result = await create_new_vacancy_transaction(
@@ -114,24 +120,33 @@ async def get_vacancy_data_auto(message: Message, state: FSMContext):
 
         # Checking for transaction status.
         await message.answer(f"Transaction status: {'Succeeded' if transaction_result else 'Failed'}")
+        logging.info(f"Transaction {hash[:8]} has {'Succeeded' if transaction_result else 'Failed'}")
         await state.clear()
         await state.set_state(VacancyData.auto_vacancy)
 
     except Exception as e:
         logging.error(f"Vacancy data handler error in data_handler_1837bc2c546d46c705204cf9.get_vacancy_data_auto: {e}")
-        await state.set_state(VacancyData.manual_vacancy)
+        await state.clear()
+        await state.set_state(VacancyData.auto_vacancy)
 
 
 
+# Still don't reach this code ever. IN ANY POSSIBLE CASES.
 @router.message(VacancyData.manual_vacancy, flags={"is_admin": True})
 async def get_vacancy_data_manual(message: Message, state: FSMContext):
     if not message.text:
         await state.clear()
         await message.answer("Send valid message")
+        logging.warning(f"Invalid message or no message at all: {message.message_id}(Recurring)")
         return
 
     try:
-        user_input = message.text.replace('\n', '').split(' ')
+        user_input = normalize_coords(message.text)
+        if not user_input:
+            await message.answer("""Wrong or unsupported coordinates format. Use this format instead: 41°02'28.04"N 73°34'57.17"W""")
+            logging.warning(f"Wrong coordinates format: {message.message_id}")
+            await state.set_state(VacancyData.manual_vacancy)
+            return
         geom=from_shape(Point(float(user_input[0]), float(user_input[1])), srid=4326)
         coords=[user_input[0], user_input[1]]
 
@@ -142,10 +157,11 @@ async def get_vacancy_data_manual(message: Message, state: FSMContext):
             Coords: {coords[0]}x{coords[1]}
             Company: {data["company_name"]}
             Tags: {data["tags_array"]}
+            Hash: {data['hash'][:8]}
         """
 
         await message.answer(log_text)
-        logging.info(log_text)
+        logging.info(log_text.rstrip())
 
 
         transaction_result = await create_new_vacancy_transaction(
@@ -161,6 +177,7 @@ async def get_vacancy_data_manual(message: Message, state: FSMContext):
         )
 
         await message.answer(f"Transaction status: {'Succeeded' if transaction_result else 'Failed'}")
+        logging.info(f"Transaction {data['hash'][:8]} has {'Succeeded' if transaction_result else 'Failed'}")
         await state.clear()
         await state.set_state(VacancyData.auto_vacancy)
 

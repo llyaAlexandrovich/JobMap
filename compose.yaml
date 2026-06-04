@@ -20,7 +20,7 @@ services:
             - pgdata:/var/lib/postgresql/data
             - ./scripts/init_db:/docker-entrypoint-initdb.d
             - ./backups:/backups
-            - ./log/bd:/log
+            - ./log/db:/log
 
 
     app:

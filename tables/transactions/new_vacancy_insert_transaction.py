@@ -1,30 +1,14 @@
 import logging
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
-
+from sqlalchemy.exc import IntegrityError
 
 from tables.models import SpatialInfo, ProvidersInfo, Vacancy, Tag, CompanyInfo
 from tables.models.relationship.m2m_vacancies_tags import vacancies_tags
 from tables import get_db_asession
 
 
-
 async def create_new_vacancy_transaction(**kwargs) -> bool:
-    """
-    Create DB transaction with received 
-
-    :param provider_name:
-    :param provider_link:
-    :param vacancy_name:
-    :param vacancy_type:
-    :param vacancy_link:
-    :param visibility:
-    :param tags_array:
-    :param hash:
-    :param location_name:
-    :param company_name:
-    :param geom:
-    """
     session_factory = await get_db_asession("bot")
     if not session_factory:
         return False
@@ -32,6 +16,7 @@ async def create_new_vacancy_transaction(**kwargs) -> bool:
     try:
         async with session_factory as session:
             async with session.begin():
+
                 provider_stmt = (
                     insert(ProvidersInfo)
                     .values(
@@ -43,28 +28,48 @@ async def create_new_vacancy_transaction(**kwargs) -> bool:
                 await session.execute(provider_stmt)
 
 
-                spatial_stmt = (
-                    insert(SpatialInfo)
-                    .values(
-                        location_name=kwargs["location_name"],
-                        geom=kwargs["geom"]
-                    )
-                    .returning(SpatialInfo.id)
-                )
+                spatial_stmt = select(SpatialInfo.id).where(SpatialInfo.location_name == kwargs["location_name"])
                 spatial_res = await session.execute(spatial_stmt)
                 location_id = spatial_res.scalar()
 
+                if not location_id:
+                    try:
 
-                company_stmt = (
-                    insert(CompanyInfo)
-                    .values(
-                        company_name=kwargs["company_name"]
-                    )
-                    .on_conflict_do_nothing(index_elements=["company_name"])
-                    .returning(CompanyInfo.id)
-                )
+                        new_spatial = SpatialInfo(location_name=kwargs["location_name"], geom=kwargs["geom"])
+                        session.add(new_spatial)
+                        await session.flush()
+                        location_id = new_spatial.id
+                    except IntegrityError:
+
+                        
+                        spatial_res = await session.execute(spatial_stmt)
+                        location_id = spatial_res.scalar()
+
+
+                if not location_id:
+                    logging.error(f"Could not get or create location_id for {kwargs['location_name']}")
+                    return False
+
+
+                company_stmt = select(CompanyInfo.id).where(CompanyInfo.company_name == kwargs["company_name"])
                 company_res = await session.execute(company_stmt)
                 company_id = company_res.scalar()
+
+                if not company_id:
+                    try:
+                        new_company = CompanyInfo(company_name=kwargs["company_name"])
+                        session.add(new_company)
+                        await session.flush()
+                        company_id = new_company.id
+                    except IntegrityError:
+                        await session.rollback()
+                        company_res = await session.execute(company_stmt)
+                        company_id = company_res.scalar()
+
+                if not company_id:
+                    logging.error(f"Could not get or create company_id for {kwargs['company_name']}")
+                    return False
+
 
                 vacancy_stmt = (
                     insert(Vacancy)
@@ -83,25 +88,46 @@ async def create_new_vacancy_transaction(**kwargs) -> bool:
                 vac_res = await session.execute(vacancy_stmt)
                 vacancy_id = vac_res.scalar()
 
+
                 if not vacancy_id:
                     logging.info(f"Vacancy with hash \"{kwargs['hash']}\" already exists.")
                     return False
 
 
-                if kwargs.get("tags_array"):
-                    for tag_name in kwargs["tags_array"]:
-                        tag_stmt = insert(Tag).values(tag_name=tag_name).on_conflict_do_nothing()
-                        await session.execute(tag_stmt)
+                tags_array = kwargs.get("tags_array")
+                if tags_array and vacancy_id:
+                    tag_ids = []
+                    for tag_name in tags_array:
+                        tag_sel = select(Tag.id).where(Tag.tag_name == tag_name)
+                        tag_sel_res = await session.execute(tag_sel)
+                        t_id = tag_sel_res.scalar()
 
-                        t_id_res = await session.execute(select(Tag.id).where(Tag.tag_name == tag_name))
-                        tag_id = t_id_res.scalar()
+                        if not t_id:
+                            try:
+                                new_tag = Tag(tag_name=tag_name)
+                                session.add(new_tag)
+                                await session.flush()
+                                t_id = new_tag.id
+                            except IntegrityError:
+                                await session.rollback()
+                                tag_sel_res = await session.execute(tag_sel)
+                                t_id = tag_sel_res.scalar()
+                        
+                        if t_id:
+                            tag_ids.append(t_id)
 
-                        await session.execute(
-                            insert(vacancies_tags).values(vacancy_id=vacancy_id, tag_id=tag_id)
+
+                    if tag_ids:
+                        m2m_values = [{"vacancy_id": vacancy_id, "tag_id": t_id} for t_id in tag_ids]
+                        m2m_stmt = (
+                            insert(vacancies_tags)
+                            .values(m2m_values)
+                            .on_conflict_do_nothing()
                         )
+                        await session.execute(m2m_stmt)
+                    
         return True
 
     except Exception as e:
         logging.error(f"Vacancy transaction error: {e}")
         return False
-
