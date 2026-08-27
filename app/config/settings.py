@@ -1,4 +1,6 @@
 import os
+import rest_framework
+import leaflet
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -17,9 +19,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-
     'django.contrib.gis',
     'leaflet',
+    'rest_framework',
 ]
 
 

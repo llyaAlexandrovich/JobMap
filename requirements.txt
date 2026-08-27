@@ -16,3 +16,14 @@ python-dotenv>=1.0.1
 
 # --- Logging & Performance (Optional but recommended) ---
 uvloop>=0.21.0; sys_platform != 'win32'
+
+# --- Network ---
+aiohttp-socks>=0.11.0
+urllib3>=2.6.3
+
+# --- Django ---
+django>=5.2.15
+djangorestframework>=3.17.1
+
+# --- Leaflet ---
+leaflet>=0.0.3

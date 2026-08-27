@@ -1,5 +1,6 @@
 import os
 from hashlib import sha3_512
+from urllib.error import HTTPError
 from geopy import Nominatim
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
@@ -123,6 +124,12 @@ async def get_vacancy_data_auto(message: Message, state: FSMContext):
         logging.info(f"Transaction {hash[:8]} has {'Succeeded' if transaction_result else 'Failed'}")
         await state.clear()
         await state.set_state(VacancyData.auto_vacancy)
+
+    except HTTPError as e:
+        logging.error(f"Vacancy data handler error in data_handler_1837bc2c546d46c705204cf9.get_vacancy_data_auto.network: {e.code}")
+        await state.clear()
+        await state.set_state(VacancyData.auto_vacancy)
+
 
     except Exception as e:
         logging.error(f"Vacancy data handler error in data_handler_1837bc2c546d46c705204cf9.get_vacancy_data_auto: {e}")
